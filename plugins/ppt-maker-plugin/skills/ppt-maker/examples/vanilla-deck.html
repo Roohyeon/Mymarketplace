@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vanilla Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+KR:wght@400;700&display=swap">
+<style>
+  /* =========================================================
+     Tokens: dark + gold premium
+     ========================================================= */
+  :root {
+    --content: 680px;                              /* 콘텐츠 최대 폭 */
+    --fs: clamp(14px, min(1.2vw, 2vh), 19px);      /* 슬라이드 기준 글자 크기 (내부는 em) */
+    --progress: 0;
+    --dur: .45s;
+
+    --bg: #0e0d0b;
+    --bg-2: #15130f;
+    --surface: #1b1914;
+    --surface-2: #23201a;
+    --line: rgba(198, 165, 92, .2);
+    --ink: #f2ead8;                                /* 따뜻한 아이보리 */
+    --muted: #b8ad98;
+    --dim: #7c7464;
+    --gold: #c6a55c;
+    --gold-strong: #dcc28a;
+    --gold-soft: rgba(198, 165, 92, .14);
+    --on-gold: #17130b;
+    --mark: rgba(198, 165, 92, .42);
+    --danger: #d4735f;
+    --code-bg: #0a0907;
+    --code-fg: #ebe1cb;
+    --code-dim: #5f5848;
+
+    --font: 'Noto Sans KR', 'Inter', sans-serif;
+    --latin: 'Inter', 'Noto Sans KR', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  }
+  @media (prefers-reduced-motion: reduce) { :root { --dur: 0s; } }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font); overflow: hidden; }
+
+  /* =========================================================
+     Layout: 풀뷰포트 fixed 스테이지 + absolute 슬라이드 스택
+     ========================================================= */
+  .stage {
+    position: fixed; inset: 0;
+    overflow: hidden;
+    touch-action: pan-y pinch-zoom;
+    user-select: none;
+  }
+  .deck { position: absolute; inset: 0; overflow: hidden; background: var(--bg); }
+  .slide {
+    position: absolute; inset: 0;
+    padding: clamp(24px, 6vh, 72px) 24px;
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; justify-content: safe center;
+    gap: 1.1em;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: var(--fs); line-height: 1.6;
+    visibility: hidden;
+    contain: layout paint style;
+    overflow-x: hidden; overflow-y: auto;
+  }
+  .slide > * { width: 100%; max-width: var(--content); }
+  .slide.is-active { visibility: visible; z-index: 1; }
+  .slide.is-leaving, .slide.is-entering { visibility: visible; will-change: transform, opacity; }
+  .slide.is-leaving  { z-index: 1; }
+  .slide.is-entering { z-index: 2; }
+
+  /* =========================================================
+     Slide typography & components (em = 슬라이드 기준 크기 비례)
+     ========================================================= */
+  .slide h1 { margin: 0; font-size: 2.6em; line-height: 1.2; font-weight: 700; letter-spacing: -0.02em; }
+  .slide h2 { margin: 0; font-size: 1.9em; line-height: 1.25; font-weight: 700; letter-spacing: -0.015em; }
+  .slide p { margin: 0; }
+  .eyebrow { font-family: var(--latin); font-size: .72em; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--gold); }
+  .lead { font-size: 1.02em; color: var(--muted); }
+  .slide ul { margin: 0; padding: 0; list-style: none; display: grid; gap: .7em; }
+  .slide li { position: relative; padding-left: 1.4em; }
+  .slide li::before { content: ""; position: absolute; left: .2em; top: .66em; width: .42em; height: .42em; border-radius: 50%; background: var(--gold); }
+  code.inline { font-family: var(--mono); font-size: .84em; background: var(--gold-soft); color: var(--gold-strong); padding: .06em .35em; border-radius: 6px; }
+
+  kbd {
+    display: inline-block; min-width: 1.9em; padding: .1em .45em;
+    font: 700 .78em/1.3 var(--mono); text-align: center;
+    color: var(--ink);
+    border: 1px solid var(--line); border-bottom-width: 3px; border-radius: 7px;
+    background: var(--surface);
+  }
+
+  /* Hero slides: gold glow */
+  .slide.hero {
+    background:
+      radial-gradient(90% 70% at 18% 12%, rgba(198, 165, 92, .16) 0%, transparent 60%),
+      radial-gradient(70% 60% at 90% 100%, rgba(198, 165, 92, .07) 0%, transparent 60%),
+      var(--bg);
+  }
+  .hints { display: flex; flex-wrap: wrap; gap: .6em 1.4em; font-size: .8em; color: var(--muted); margin-top: .8em; }
+  .hints span { display: inline-flex; align-items: center; gap: .4em; }
+
+  /* Flow diagram */
+  .flow { display: grid; grid-template-columns: 1fr auto 1.1fr auto 1fr; align-items: center; gap: .8em; margin-top: .4em; }
+  .flow .col { display: grid; gap: .5em; }
+  .chip { padding: .45em .6em; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: .78em; font-weight: 700; text-align: center; }
+  .hub { padding: 1.3em .8em; border-radius: 14px; background: var(--gold); color: var(--on-gold); text-align: center; box-shadow: 0 18px 40px -22px rgba(198, 165, 92, .7); }
+  .hub strong { display: block; font: 700 1.02em/1.3 var(--mono); }
+  .hub small { display: block; margin-top: .4em; font-size: .7em; opacity: .8; }
+  .arrow { font-size: 1.3em; color: var(--dim); text-align: center; }
+  .out { border-color: transparent; background: var(--gold-soft); color: var(--gold-strong); }
+
+  /* Layer stack diagram */
+  .stack { position: relative; height: 8.2em; }
+  .layer {
+    position: absolute; width: 58%; height: 5.4em;
+    padding: .6em .8em; border-radius: 12px;
+    border: 1px solid var(--line); background: var(--surface);
+    font: 700 .72em/1.4 var(--mono); color: var(--dim);
+  }
+  .layer:nth-child(1) { left: 0;   top: 0; }
+  .layer:nth-child(2) { left: 21%; top: 1.4em; border-color: var(--gold); color: var(--gold-strong); background: var(--surface-2); box-shadow: 0 18px 40px -24px rgba(198, 165, 92, .6); z-index: 1; }
+  .layer:nth-child(3) { left: 42%; top: 2.8em; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-end; text-align: right; }
+  .layer span { display: block; margin-top: .3em; font: 400 1em/1.4 var(--font); color: var(--muted); }
+
+  /* Cards */
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8em; }
+  .cards--2 { grid-template-columns: repeat(2, 1fr); }
+  .card { padding: 1em; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: .55em; align-content: start; }
+  .card h3 { margin: 0; font: 700 1.02em/1.2 var(--mono); color: var(--gold); }
+  .card p { font-size: .76em; color: var(--muted); line-height: 1.55; }
+  .demo { height: 3.4em; border-radius: 9px; background: var(--gold-soft); position: relative; overflow: hidden; }
+  .demo i { position: absolute; inset: .7em; border-radius: 6px; background: var(--gold); }
+  .demo--fade i  { animation: d-fade 2.4s ease-in-out infinite alternate; }
+  .demo--slide i { animation: d-slide 2.4s ease-in-out infinite alternate; }
+  .demo--zoom i  { animation: d-zoom 2.4s ease-in-out infinite alternate; }
+  @keyframes d-fade  { from { opacity: 1; } to { opacity: .1; } }
+  @keyframes d-slide { from { transform: translateX(-110%); } to { transform: translateX(0); } }
+  @keyframes d-zoom  { from { transform: scale(.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .demo i { animation: none !important; } }
+
+  /* Code + captions */
+  .split { display: grid; gap: .8em; }
+  .captions { display: grid; gap: .45em; font-size: .8em; }
+  .captions p { padding: .5em .8em; border-left: 3px solid var(--gold); background: var(--surface); border-radius: 0 8px 8px 0; }
+
+  /* Shortcut table */
+  .keys { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5em 1.6em; font-size: .86em; }
+  .keys div { display: flex; justify-content: space-between; align-items: center; gap: .6em; padding-bottom: .45em; border-bottom: 1px solid var(--line); }
+  .keys span:last-child { display: flex; gap: .3em; flex-wrap: wrap; justify-content: flex-end; }
+
+  @media (max-width: 640px) {
+    .flow { grid-template-columns: 1fr; }
+    .arrow { transform: rotate(90deg); }
+    .cards, .cards--2, .keys { grid-template-columns: 1fr; }
+  }
+
+  /* =========================================================
+     Build effects (페이지 진입 시 자동 재생, CSS 클래스 토글)
+     ========================================================= */
+  .step {
+    opacity: 0; visibility: hidden;
+    transition: opacity var(--dur) ease, transform var(--dur) ease, visibility 0s linear var(--dur);
+  }
+  .step.is-visible { opacity: 1; visibility: visible; transition-delay: 0s; }
+  .step.fade-up { transform: translateY(.8em); }
+  .step.fade-up.is-visible { transform: none; }
+  .step.fade-out-after.is-visible:not(.is-current-step) { opacity: .3; }
+
+  /* 제자리 효과: 처음부터 보이고, 순서가 오면 장식만 추가 */
+  .step.highlight, .step.strike { opacity: 1; visibility: visible; }
+  .step.highlight {
+    background: linear-gradient(var(--mark), var(--mark)) no-repeat 0 88% / 0% 42%;
+    transition: background-size var(--dur) ease;
+  }
+  .step.highlight.is-visible { background-size: 100% 42%; }
+  .step.strike {
+    text-decoration: line-through 2px transparent;
+    transition: text-decoration-color var(--dur), color var(--dur);
+  }
+  .step.strike.is-visible { text-decoration-color: var(--danger); color: var(--dim); }
+
+  /* =========================================================
+     Code block + line highlight
+     ========================================================= */
+  pre.code {
+    margin: 0; padding: .8em 0;
+    background: var(--code-bg); color: var(--code-fg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font: 400 .8em/1.65 var(--mono);
+    font-variant-ligatures: none;
+    overflow-x: auto;
+  }
+  pre.code code { display: block; counter-reset: line; font: inherit; }
+  .line {
+    display: block; padding-right: 1em; white-space: pre;
+    counter-increment: line;
+    transition: opacity var(--dur), background-color var(--dur);
+  }
+  .line::before {
+    content: counter(line);
+    display: inline-block; width: 3em; padding-right: 1.1em;
+    text-align: right; color: var(--code-dim); user-select: none;
+  }
+  pre.has-highlights .line:not(.is-hl) { opacity: .28; }
+  pre.has-highlights .line.is-hl { background: var(--gold-soft); }
+  .tok-kw  { color: #e0be74; }
+  .tok-str { color: #b9c597; }
+  .tok-num { color: #e39a6f; }
+  .tok-com { color: #6e6656; font-style: italic; }
+
+  /* =========================================================
+     Chrome: progress, counter, notes, blackout
+     ========================================================= */
+  .progress { position: fixed; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(242, 234, 216, .06); pointer-events: none; z-index: 10; }
+  .progress-bar {
+    height: 100%; background: var(--gold);
+    transform-origin: left; transform: scaleX(var(--progress));
+    transition: transform .35s ease;
+  }
+  .counter {
+    position: fixed; right: 16px; bottom: 14px; z-index: 10;
+    padding: 5px 11px; border-radius: 999px;
+    background: rgba(0, 0, 0, .45); color: var(--muted);
+    border: 1px solid var(--line);
+    font: 700 12px/1 var(--mono); pointer-events: none;
+  }
+  .notes-overlay {
+    position: fixed; left: 50%; bottom: 36px; z-index: 11;
+    width: min(var(--content), calc(100% - 32px)); max-height: 40vh; overflow: auto;
+    transform: translateX(-50%);
+    padding: 16px 20px; border-radius: 12px;
+    background: rgba(27, 25, 20, .95); color: var(--ink);
+    border: 1px solid var(--line);
+    font-size: 15px; line-height: 1.7;
+    display: none;
+  }
+  body.show-notes .notes-overlay { display: block; }
+  .blackout-layer {
+    position: fixed; inset: 0; z-index: 20; background: #000;
+    opacity: 0; pointer-events: none; transition: opacity .3s;
+  }
+  body.blackout:not(.presenter) .blackout-layer { opacity: 1; pointer-events: auto; }
+  aside.notes { display: none; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  @media (prefers-reduced-motion: reduce) { .progress-bar, .blackout-layer { transition: none; } }
+
+  /* =========================================================
+     Presenter view (?presenter)
+     ========================================================= */
+  body.presenter { background: var(--bg-2); color: var(--ink); overflow: auto; }
+  body.presenter .stage, body.presenter .progress, body.presenter .counter,
+  body.presenter .notes-overlay, body.presenter .blackout-layer { display: none; }
+  .pv {
+    display: grid; gap: 20px; padding: 20px;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 100vh; min-height: 100dvh;
+  }
+  .pv-main  { grid-column: 1; grid-row: 1; }
+  .pv-notes { grid-column: 1; grid-row: 2; overflow: auto; padding: 18px 22px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 20px; line-height: 1.7; }
+  .pv-side  { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 14px; }
+  .pv-label { margin: 0 0 8px; font: 700 12px/1 var(--latin); letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+  .pv-frame { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: var(--bg); border-radius: 10px; outline: 1px solid var(--line); }
+  .pv-frame .slide.is-preview {
+    inset: 0 auto auto 0;
+    transform-origin: 0 0;
+    visibility: visible;
+    overflow: hidden;
+  }
+  .pv-end { margin: 0; position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font-size: 16px; }
+  .pv-timer { padding: 0; border: 0; background: none; color: var(--gold); cursor: pointer; font: 700 60px/1.1 var(--mono); text-align: left; }
+  .pv-meta { display: grid; gap: 6px; margin-top: 8px; font-size: 16px; color: var(--muted); }
+  .pv-status { color: var(--danger); font-weight: 700; }
+  @media (max-width: 800px) {
+    .pv { grid-template-columns: 1fr; grid-template-rows: none; }
+    .pv-main, .pv-notes, .pv-side { grid-column: 1; grid-row: auto; }
+  }
+
+  /* =========================================================
+     Print / PDF: 한 페이지에 한 슬라이드, 모든 빌드 효과 표시
+     ========================================================= */
+  @media print {
+    @page { size: 1600px 900px; margin: 0; }
+    html, body { height: auto; overflow: visible; }
+    * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    .stage, .deck { position: static; inset: auto; overflow: visible; }
+    .slide {
+      position: relative; inset: auto; width: 1600px; height: 900px; --fs: 18px;
+      visibility: visible !important; opacity: 1 !important; transform: none !important;
+      break-after: page; break-inside: avoid;
+    }
+    .step { opacity: 1 !important; visibility: visible !important; transform: none !important; }
+    .line { opacity: 1 !important; background: none !important; }
+    .progress, .counter, .notes-overlay, .blackout-layer, .pv { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <main class="deck" id="deck" data-transition="slide" aria-roledescription="carousel" aria-label="라이브러리 없이 만드는 웹 슬라이드">
+
+    <!-- 1. Title -->
+    <section class="slide hero" data-transition="fade">
+      <p class="eyebrow">Vanilla HTML · CSS · JS</p>
+      <h1>라이브러리 없이 만드는<br>웹 슬라이드</h1>
+      <p class="lead">풀스크린 레이아웃 · WAAPI 전환 · 빌드 효과 · 발표자 보기</p>
+      <div class="hints">
+        <span><kbd>→</kbd><kbd>Space</kbd> 다음</span>
+        <span><kbd>←</kbd> 이전</span>
+        <span><kbd>S</kbd> 발표자 보기</span>
+        <span><kbd>N</kbd> 노트</span>
+        <span><kbd>F</kbd> 전체 화면</span>
+      </div>
+      <aside class="notes">
+        이 파일 하나에 HTML, CSS, JS가 모두 들어 있습니다. 외부 라이브러리는 쓰지 않았습니다.
+        키를 한 번 누르면 정확히 한 페이지씩 이동합니다. S 키를 누르면 발표자 보기 창이 열립니다.
+      </aside>
+    </section>
+
+    <!-- 2. Architecture -->
+    <section class="slide">
+      <p class="eyebrow">Architecture</p>
+      <h2>모든 입력은 <code class="inline">goTo()</code> 하나로</h2>
+      <div class="flow">
+        <div class="col step fade-up">
+          <div class="chip">키보드</div>
+          <div class="chip">스와이프 · 클릭</div>
+          <div class="chip">URL 해시</div>
+          <div class="chip">발표자 창</div>
+        </div>
+        <div class="arrow step">→</div>
+        <div class="hub step fade-up" data-step="2">
+          <strong>goTo(index)</strong>
+          <small>상태는 페이지 번호 하나뿐</small>
+        </div>
+        <div class="arrow step" data-step="3">→</div>
+        <div class="col step fade-up" data-step="3">
+          <div class="chip out">빌드 효과 재생</div>
+          <div class="chip out">전환 애니메이션</div>
+          <div class="chip out">해시 · 창 동기화</div>
+        </div>
+      </div>
+      <aside class="notes">
+        입력 경로가 몇 개든 상태를 바꾸는 곳은 goTo 한 곳입니다.
+        같은 페이지로의 이동은 아무 일도 하지 않기 때문에, 해시나 다른 창에서 들어온 이동이 다시 돌아오는 루프가 생기지 않습니다.
+      </aside>
+    </section>
+
+    <!-- 3. Layout -->
+    <section class="slide">
+      <p class="eyebrow">Layout · fixed + absolute</p>
+      <h2>화면을 꽉 채우는 슬라이드 스택</h2>
+      <div class="stack" aria-hidden="true">
+        <div class="layer">.is-past<span>이전 페이지</span></div>
+        <div class="layer">.is-active<span>지금 보이는 페이지</span></div>
+        <div class="layer">.is-future<span>다음 페이지</span></div>
+      </div>
+      <ul>
+        <li class="step fade-up">스테이지는 <code class="inline">position: fixed; inset: 0</code></li>
+        <li class="step fade-up">모든 슬라이드는 <code class="inline">absolute</code>로 같은 자리에 겹칩니다</li>
+        <li class="step fade-up">안 보이는 슬라이드는 <code class="inline">visibility: hidden</code> + <code class="inline">inert</code></li>
+      </ul>
+      <aside class="notes">
+        모든 페이지가 같은 자리에 겹쳐 있어서 fade나 zoom처럼 두 장이 겹치는 전환이 자연스럽게 됩니다.
+        display: none을 쓰지 않는 이유는 전환 애니메이션이 동작하지 않기 때문입니다.
+      </aside>
+    </section>
+
+    <!-- 4. Transitions -->
+    <section class="slide" data-transition="zoom">
+      <p class="eyebrow">Transitions · Web Animations API</p>
+      <h2>전환 효과 3종</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>fade</h3>
+          <div class="demo demo--fade"><i></i></div>
+          <p>opacity만 바꿉니다. 가장 무난한 기본값입니다.</p>
+        </div>
+        <div class="card">
+          <h3>slide</h3>
+          <div class="demo demo--slide"><i></i></div>
+          <p>방향을 인식합니다. 뒤로 가면 반대쪽으로 밀립니다.</p>
+        </div>
+        <div class="card">
+          <h3>zoom</h3>
+          <div class="demo demo--zoom"><i></i></div>
+          <p>scale과 opacity를 함께 씁니다. 이 슬라이드가 zoom으로 들어왔습니다.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        이 슬라이드에는 data-transition="zoom"이 지정되어 있습니다. 덱 기본값은 slide입니다.
+        전환 중에 키를 여러 번 눌러도 다음 한 페이지만 예약됩니다. Esc를 누르면 진행 중인 전환을 바로 끝냅니다.
+      </aside>
+    </section>
+
+    <!-- 5. Build effects -->
+    <section class="slide">
+      <p class="eyebrow">Build effects · CSS class toggle</p>
+      <h2>요소를 순서대로 보여주기</h2>
+      <ul>
+        <li class="step fade-out-after" data-step="1">fade-in — 다음 요소가 나오면 흐려집니다</li>
+        <li class="step fade-up" data-step="2">fade-up — 아래에서 떠오릅니다</li>
+        <li class="step fade-up" data-step="3">같은 <code class="inline">data-step</code> 번호는</li>
+        <li class="step fade-up" data-step="3">동시에 나타납니다</li>
+        <li>제자리 효과: <span class="step highlight" data-step="4">형광펜으로 강조</span>하거나
+          <span class="step strike" data-step="5">취소선을 긋습니다</span></li>
+      </ul>
+      <aside class="notes">
+        페이지에 들어오면 빌드 효과가 data-step 순서대로 자동 재생됩니다. 키를 누를 필요가 없습니다.
+        뒤로 가기로 들어오면 완성된 상태로 바로 보여줍니다.
+      </aside>
+    </section>
+
+    <!-- 6. Code highlight -->
+    <section class="slide">
+      <p class="eyebrow">Code line highlight</p>
+      <h2>코드의 특정 줄 강조</h2>
+      <div class="split">
+<pre class="code" data-lines="|2-4|6-10|12-13" data-step="1"><code>
+async function goTo(c, { from = 'local' } = {}) {
+  c = clamp(c, 0, slides.length - 1);
+  if (animating) { pending = { cur: c, from }; return; }
+  if (c === state.cur) return;
+
+  const prev = state.cur;
+  state.cur = c;
+  updateUI();
+  if (from !== 'hash') writeHash();
+  if (from !== 'remote') send({ type: 'go', cur: c });
+
+  await transition(prev, c);
+  playSteps(c, c > prev ? 1 : -1);
+}
+</code></pre>
+        <div class="captions">
+          <p class="step fade-out-after" data-step="1">범위를 맞추고, 전환 중이면 다음 한 장만 예약하고, 같은 페이지면 무시합니다</p>
+          <p class="step fade-out-after" data-step="2">상태를 바꾸고 화면·해시·다른 창을 갱신합니다</p>
+          <p class="step fade-out-after" data-step="3">전환이 끝나면 그 페이지의 빌드 효과를 자동 재생합니다</p>
+        </div>
+      </div>
+      <aside class="notes">
+        data-lines="|2-4|6-10|12-13" 한 줄로 단계별 강조를 지정합니다. 첫 단계(빈 값)는 강조 없음입니다.
+        코드 강조와 아래 설명이 같은 data-step 번호를 공유해서 함께 바뀝니다.
+      </aside>
+    </section>
+
+    <!-- 7. Sync -->
+    <section class="slide" data-transition="fade">
+      <p class="eyebrow">URL hash · Presenter view</p>
+      <h2>주소와 창이 같은 페이지를 가리킵니다</h2>
+      <div class="cards cards--2">
+        <div class="card step fade-up">
+          <h3>#7</h3>
+          <p>주소 끝 번호가 지금 페이지입니다. replaceState로 갱신해서 뒤로 가기 기록이 쌓이지 않고, 새로고침해도 같은 페이지가 열립니다.</p>
+        </div>
+        <div class="card step fade-up">
+          <h3>?presenter</h3>
+          <p>S 키로 연 발표자 창과 BroadcastChannel로 페이지 번호를 주고받습니다. 어느 창에서 넘겨도 두 창이 함께 이동합니다.</p>
+        </div>
+      </div>
+      <aside class="notes">
+        지금 주소창 끝이 #7로 바뀌어 있을 것입니다. 이 주소를 공유하면 받은 사람도 7페이지부터 봅니다.
+        BroadcastChannel은 같은 출처에서만 동작하므로 로컬 서버로 여는 것이 가장 확실합니다.
+      </aside>
+    </section>
+
+    <!-- 8. Accessibility & performance -->
+    <section class="slide">
+      <p class="eyebrow">Accessibility · Performance</p>
+      <h2>빠르고, 누구나 쓸 수 있게</h2>
+      <ul>
+        <li class="step fade-up"><code class="inline">transform</code>과 <code class="inline">opacity</code>만 애니메이션합니다</li>
+        <li class="step fade-up"><code class="inline">will-change</code>는 전환 중인 두 장에만 잠깐 켭니다</li>
+        <li class="step fade-up">숨은 슬라이드는 <code class="inline">inert</code>로 포커스와 스크린리더에서 뺍니다</li>
+        <li class="step fade-up">페이지가 바뀌면 <code class="inline">aria-live</code>로 "슬라이드 8 / 10"을 읽어 줍니다</li>
+        <li class="step fade-up">동작 줄이기 설정이면 짧은 fade로 바꾸고 빌드 효과를 한 번에 보여줍니다</li>
+      </ul>
+      <aside class="notes">
+        transform과 opacity는 레이아웃을 다시 계산하지 않고 GPU 합성만으로 처리되어 부드럽습니다.
+        will-change를 모든 슬라이드에 계속 켜 두면 메모리를 많이 쓰므로 전환 중에만 씁니다.
+      </aside>
+    </section>
+
+    <!-- 9. Shortcuts -->
+    <section class="slide" data-transition="fade">
+      <p class="eyebrow">Controls</p>
+      <h2>단축키</h2>
+      <div class="keys">
+        <div><span>다음</span><span><kbd>→</kbd><kbd>↓</kbd><kbd>Space</kbd><kbd>PgDn</kbd></span></div>
+        <div><span>이전</span><span><kbd>←</kbd><kbd>↑</kbd><kbd>⇧ Space</kbd><kbd>PgUp</kbd></span></div>
+        <div><span>처음 · 끝</span><span><kbd>Home</kbd><kbd>End</kbd></span></div>
+        <div><span>발표자 보기</span><span><kbd>S</kbd></span></div>
+        <div><span>노트 표시</span><span><kbd>N</kbd></span></div>
+        <div><span>화면 끄기</span><span><kbd>B</kbd><kbd>.</kbd></span></div>
+        <div><span>전체 화면</span><span><kbd>F</kbd></span></div>
+        <div><span>전환 건너뛰기</span><span><kbd>Esc</kbd></span></div>
+      </div>
+      <p class="lead">한 번 누르면 한 페이지 · 터치: 좌우로 스와이프 · 마우스: 화면 왼쪽 30%를 누르면 이전, 나머지는 다음</p>
+      <aside class="notes">
+        클리커(발표용 리모컨)는 보통 PageUp/PageDown을 보내므로 그대로 동작합니다. 화면 끄기 버튼은 B 또는 마침표로 처리합니다.
+      </aside>
+    </section>
+
+    <!-- 10. End -->
+    <section class="slide hero" data-transition="fade">
+      <p class="eyebrow">Thank you</p>
+      <h1>직접 만들어 보세요</h1>
+      <p class="lead step fade-up">파일 하나 · 라이브러리 0개 · 브라우저만 있으면 됩니다</p>
+      <aside class="notes">
+        Ctrl+P로 인쇄하면 한 페이지에 한 슬라이드씩, 빌드 효과가 모두 펼쳐진 상태로 PDF를 만들 수 있습니다.
+      </aside>
+    </section>
+
+  </main>
+</div>
+
+<div class="progress" aria-hidden="true"><div class="progress-bar"></div></div>
+<div class="counter" id="counter" aria-hidden="true"></div>
+<div class="notes-overlay" id="notes-overlay" aria-label="발표자 노트"></div>
+<div class="blackout-layer" aria-hidden="true"></div>
+<div class="sr-only" id="announcer" aria-live="polite" aria-atomic="true"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const DURATION = 600;
+  const EASING = 'cubic-bezier(0.26, 0.86, 0.44, 0.985)';
+  const STEP_FIRST = 250;      // 페이지 진입 후 첫 빌드 효과까지
+  const STEP_GAP = 380;        // 일반 빌드 효과 간격
+  const STEP_GAP_CODE = 1600;  // 코드 강조 단계 간격 (읽을 시간)
+  const PREVIEW = { w: 1600, h: 900, fs: '18px' };  // 발표자 미리보기 기준 화면
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+  const stage = $('#stage');
+  const deck = $('#deck');
+  const slides = [...deck.children].filter(el => el.classList.contains('slide'));
+  const total = slides.length;
+  const counter = $('#counter');
+  const announcer = $('#announcer');
+  const notesOverlay = $('#notes-overlay');
+  const isPresenter = new URLSearchParams(location.search).has('presenter');
+  const reduceMQ = matchMedia('(prefers-reduced-motion: reduce)');
+
+  /* ---------------------------------------------------------
+     1. Code blocks: 줄 분할 + 간단한 구문 강조 + 강조 단계 파싱
+     --------------------------------------------------------- */
+  const escapeHTML = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const TOKEN = /(\/\/.*$)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)|\b(async|await|break|case|catch|class|const|continue|else|export|finally|for|from|function|if|import|in|let|new|of|return|switch|throw|try|while)\b|\b(true|false|null|undefined|\d+(?:\.\d+)?)\b/g;
+
+  function highlightLine(line) {
+    let out = '', last = 0;
+    for (const m of line.matchAll(TOKEN)) {
+      out += escapeHTML(line.slice(last, m.index));
+      const cls = m[1] ? 'tok-com' : m[2] ? 'tok-str' : m[3] ? 'tok-kw' : 'tok-num';
+      out += `<span class="${cls}">${escapeHTML(m[0])}</span>`;
+      last = m.index + m[0].length;
+    }
+    return out + escapeHTML(line.slice(last));
+  }
+
+  function parseStage(str) {                  // "1-3,5" -> Set {1, 2, 3, 5}
+    const set = new Set();
+    str.split(',').forEach(tok => {
+      const m = tok.trim().match(/^(\d+)(?:-(\d+))?$/);
+      if (!m) return;
+      for (let i = +m[1]; i <= +(m[2] || m[1]); i++) set.add(i);
+    });
+    return set;
+  }
+
+  function setupCode(pre) {
+    const code = pre.querySelector('code') || pre;
+    const text = code.textContent.replace(/^\n/, '').replace(/\s+$/, '');
+    pre.lineEls = text.split('\n').map(l => {
+      const span = document.createElement('span');
+      span.className = 'line';
+      span.innerHTML = highlightLine(l) || ' ';
+      return span;
+    });
+    code.replaceChildren(...pre.lineEls);
+    code.style.counterReset = `line ${(+pre.dataset.lnStart || 1) - 1}`;
+    pre.stages = (pre.dataset.lines || '').split('|').map(parseStage);
+  }
+
+  /* ---------------------------------------------------------
+     2. Build effects: data-step 번호로 그룹 생성
+        - data-step 없음: DOM 순서대로 자동 번호
+        - data-step="n": n번 그룹에 합류 (같은 번호는 동시에 등장)
+        - 코드 블록은 강조 2단계부터 각각 하나의 그룹
+        페이지 이동과는 분리되어, 페이지에 들어오면 자동 재생됨
+     --------------------------------------------------------- */
+  function buildSteps(slide) {
+    const groups = new Map();
+    let auto = 0;
+    const put = (n, unit) => { if (!groups.has(n)) groups.set(n, []); groups.get(n).push(unit); };
+    slide.querySelectorAll('.step, pre.code').forEach(el => {
+      if (el.matches('pre.code')) {
+        setupCode(el);
+        const base = el.dataset.step ? +el.dataset.step : null;
+        el.stages.slice(1).forEach((_, k) => put(base != null ? base + k : ++auto, { code: el, stage: k + 1 }));
+      } else {
+        put(el.dataset.step ? +el.dataset.step : ++auto, { el });
+      }
+    });
+    return [...groups.keys()].sort((a, b) => a - b).map(k => groups.get(k));
+  }
+
+  const steps = slides.map(buildSteps);
+
+  function renderSteps(c, s) {
+    const codeStage = new Map();
+    steps[c].forEach((group, i) => group.forEach(u => {
+      const shown = i < s;
+      if (u.el) {
+        u.el.classList.toggle('is-visible', shown);
+        u.el.classList.toggle('is-current-step', shown && i === s - 1);
+      } else if (shown) {
+        codeStage.set(u.code, Math.max(codeStage.get(u.code) || 0, u.stage));
+      }
+    }));
+    slides[c].querySelectorAll('pre.code').forEach(pre => {
+      const set = pre.stages[codeStage.get(pre) || 0] || new Set();
+      pre.classList.toggle('has-highlights', set.size > 0);
+      pre.lineEls.forEach((ln, i) => ln.classList.toggle('is-hl', set.has(i + 1)));
+    });
+  }
+
+  let stepTimers = [];
+  function stopSteps() { stepTimers.forEach(clearTimeout); stepTimers = []; }
+
+  // dir < 0(뒤에서 진입), 동작 줄이기, 발표자 창이면 완성 상태로 바로 표시
+  function playSteps(c, dir = 1) {
+    stopSteps();
+    const n = steps[c].length;
+    if (!n) return;
+    if (dir < 0 || reduceMQ.matches || isPresenter) { renderSteps(c, n); return; }
+    let t = STEP_FIRST;
+    steps[c].forEach((group, i) => {
+      stepTimers.push(setTimeout(() => { if (state.cur === c) renderSteps(c, i + 1); }, t));
+      t += group.some(u => u.code) ? STEP_GAP_CODE : STEP_GAP;
+    });
+  }
+
+  /* ---------------------------------------------------------
+     3. Slide states & transitions (Web Animations API)
+     --------------------------------------------------------- */
+  function setSlideStates(c) {
+    slides.forEach((el, i) => {
+      const on = i === c;
+      el.classList.toggle('is-active', on);
+      el.classList.toggle('is-past', i < c);
+      el.classList.toggle('is-future', i > c);
+      el.classList.remove('is-leaving', 'is-entering');
+      el.inert = !on;
+      if (on) el.removeAttribute('aria-hidden'); else el.setAttribute('aria-hidden', 'true');
+    });
+  }
+
+  // dir: +1 앞으로, -1 뒤로 → [나가는 슬라이드 keyframes, 들어오는 슬라이드 keyframes]
+  const EFFECTS = {
+    fade: () => [
+      [{ opacity: 1 }, { opacity: 0 }],
+      [{ opacity: 0 }, { opacity: 1 }],
+    ],
+    slide: dir => [
+      [{ transform: 'translateX(0)' }, { transform: `translateX(${-100 * dir}%)` }],
+      [{ transform: `translateX(${100 * dir}%)` }, { transform: 'translateX(0)' }],
+    ],
+    zoom: dir => [
+      [{ transform: 'scale(1)', opacity: 1 }, { transform: `scale(${dir > 0 ? 3 : 0.3})`, opacity: 0 }],
+      [{ transform: `scale(${dir > 0 ? 0.3 : 3})`, opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+    ],
+  };
+
+  let running = [];
+
+  async function transition(from, to, dir) {
+    if (isPresenter) return;                    // 발표자 창은 미리보기만 갱신
+    const reduce = reduceMQ.matches;
+    const requested = to.dataset.transition || deck.dataset.transition || 'fade';
+    if (requested === 'none') return;
+    const name = reduce ? 'fade' : (EFFECTS[requested] ? requested : 'fade');
+    const [outKF, inKF] = EFFECTS[name](dir);
+    const opts = {
+      duration: reduce ? 150 : (+to.dataset.duration || DURATION),
+      easing: reduce ? 'linear' : EASING,
+      fill: 'forwards',                         // 끝 프레임 유지 → 상태 확정 후 cancel()
+    };
+    from.classList.add('is-leaving');
+    to.classList.add('is-entering');
+    running = [from.animate(outKF, opts), to.animate(inKF, opts)];
+    // 숨은 탭 등에서 프레임이 멈추면 finished가 오지 않을 수 있음 → 시간 초과로 잠금 해제 보장
+    const timeout = new Promise(resolve => setTimeout(resolve, opts.duration + 150));
+    try {
+      await Promise.race([Promise.all(running.map(a => a.finished)), timeout]);
+    } catch (_) {
+      // cancel()되면 finished가 reject됨: 정리는 goTo의 finally에서 처리
+    }
+  }
+
+  function skipTransition() { running.forEach(a => a.finish()); }
+
+  /* ---------------------------------------------------------
+     4. Navigation core: 한 번에 한 페이지, 상태 변경은 goTo에서만
+     --------------------------------------------------------- */
+  const state = { cur: 0 };
+  const listeners = new Set();
+  let animating = false;
+  let pending = null;                           // 전환 중 예약된 다음 페이지 (최대 1개)
+
+  async function goTo(c, { from = 'local' } = {}) {
+    c = clamp(c | 0, 0, total - 1);
+    if (animating) {                            // 전환 중: 목적지 기준 한 장만 예약 (누적 안 됨)
+      pending = c !== state.cur ? { cur: c, from } : null;
+      return;
+    }
+    if (c === state.cur) return;
+
+    const prevCur = state.cur;
+    const dir = c > prevCur ? 1 : -1;
+    state.cur = c;
+    stopSteps();
+    renderSteps(c, dir < 0 ? steps[c].length : 0);   // 앞으로: 빈 상태에서 시작 / 뒤로: 완성 상태
+    updateUI();
+    if (from !== 'hash') writeHash();
+    if (from !== 'remote') send({ type: 'go', cur: c });
+
+    animating = true;
+    try {
+      await transition(slides[prevCur], slides[c], dir);
+    } finally {
+      setSlideStates(c);
+      running.forEach(a => a.cancel());         // fill 효과 제거 → CSS 상태로 복귀
+      running = [];
+      animating = false;
+    }
+    playSteps(c, dir);
+    listeners.forEach(fn => fn({ cur: c, prevCur }));
+
+    if (pending) {
+      const p = pending;
+      pending = null;
+      goTo(p.cur, { from: p.from });
+    }
+  }
+
+  // state.cur는 전환 시작 시점에 이미 목적지이므로, 연타해도 항상 한 페이지씩만 움직임
+  function next() { if (state.cur < total - 1) goTo(state.cur + 1); }
+  function prev() { if (state.cur > 0) goTo(state.cur - 1); }
+
+  function updateUI() {
+    const { cur } = state;
+    document.documentElement.style.setProperty('--progress', total > 1 ? cur / (total - 1) : 1);
+    counter.textContent = `${cur + 1} / ${total}`;
+    announcer.textContent = `슬라이드 ${cur + 1} / ${total}`;
+    const notes = slides[cur].querySelector('aside.notes');
+    notesOverlay.innerHTML = notes ? notes.innerHTML : '<em>노트 없음</em>';
+    if (isPresenter) updatePresenter();
+  }
+
+  /* ---------------------------------------------------------
+     5. URL hash: #3 (1-based 페이지 번호)
+     --------------------------------------------------------- */
+  const hashFor = c => '#' + (c + 1);
+  function writeHash() {
+    const h = hashFor(state.cur);
+    if (location.hash !== h) history.replaceState(null, '', h);   // hashchange 발생 안 함
+  }
+  function parseHash() {
+    const m = /^#\/?(\d+)/.exec(location.hash);
+    return m ? +m[1] - 1 : null;
+  }
+  addEventListener('hashchange', () => {
+    const c = parseHash();
+    if (c !== null) goTo(c, { from: 'hash' });
+  });
+
+  /* ---------------------------------------------------------
+     6. Window sync: BroadcastChannel + opener postMessage (file:// 대비)
+     --------------------------------------------------------- */
+  const channel = 'BroadcastChannel' in window ? new BroadcastChannel('vanilla-deck') : null;
+  let peer = isPresenter ? window.opener : null;
+
+  function send(msg) {
+    if (channel) channel.postMessage(msg);
+    try { if (peer && !peer.closed) peer.postMessage({ vanillaDeck: msg }, '*'); } catch (_) {}
+  }
+  function receive(msg) {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'go') goTo(msg.cur, { from: 'remote' });
+    else if (msg.type === 'blackout') setBlackout(!!msg.on, false);
+    else if (msg.type === 'hello' && !isPresenter) {
+      send({ type: 'go', cur: state.cur });
+      send({ type: 'blackout', on: document.body.classList.contains('blackout') });
+    }
+  }
+  if (channel) channel.onmessage = e => receive(e.data);
+  addEventListener('message', e => {
+    if (peer && e.source === peer && e.data && e.data.vanillaDeck) receive(e.data.vanillaDeck);
+  });
+
+  /* ---------------------------------------------------------
+     7. Extras: notes, blackout, fullscreen, presenter window
+     --------------------------------------------------------- */
+  function toggleNotes() { document.body.classList.toggle('show-notes'); }
+
+  function setBlackout(on, broadcast = true) {
+    document.body.classList.toggle('blackout', on);
+    if (isPresenter) $('#pv-status').textContent = on ? '● 청중 화면 꺼짐 (B)' : '';
+    if (broadcast) send({ type: 'blackout', on });
+  }
+  function toggleBlackout() { setBlackout(!document.body.classList.contains('blackout')); }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+  }
+
+  function openPresenter() {
+    if (isPresenter) return;
+    const url = location.pathname + '?presenter' + hashFor(state.cur);
+    peer = window.open(url, 'vanilla-deck-presenter', 'popup,width=1280,height=800') || peer;
+  }
+
+  /* ---------------------------------------------------------
+     8. Input: keyboard
+     --------------------------------------------------------- */
+  const isEditable = t => t instanceof Element &&
+    (t.isContentEditable || t.closest('input, textarea, select, [contenteditable]'));
+
+  document.addEventListener('keydown', e => {
+    if (e.defaultPrevented || isEditable(e.target)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.repeat) return;                       // 길게 눌러 여러 장 넘어가는 사고 방지
+    const k = e.key;
+    if ((k === 'Enter' || k === ' ') && e.target instanceof Element && e.target.closest('a, button')) return;
+
+    let act = null;
+    switch (k) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': case 'Enter': act = next; break;
+      case 'ArrowLeft': case 'ArrowUp': case 'PageUp': act = prev; break;
+      case ' ': act = e.shiftKey ? prev : next; break;
+      case 'Home': act = () => goTo(0); break;
+      case 'End': act = () => goTo(total - 1); break;
+      case 'n': case 'N': act = toggleNotes; break;
+      case 's': case 'S': act = openPresenter; break;
+      case 'b': case 'B': case '.': act = toggleBlackout; break;
+      case 'f': case 'F': act = toggleFullscreen; break;
+      case 'Escape': skipTransition(); return;  // 기본 동작(전체 화면 해제)은 유지
+    }
+    if (!act) return;
+    if (e.shiftKey && k !== ' ' && k.length !== 1) return;   // Shift는 Space와 문자키만
+    e.preventDefault();
+    act();
+  });
+
+  /* ---------------------------------------------------------
+     9. Input: swipe (Pointer Events) + click zones
+     --------------------------------------------------------- */
+  let start = null, swiped = false;
+  stage.addEventListener('pointerdown', e => {
+    if (!e.isPrimary || e.pointerType === 'mouse') return;
+    start = { x: e.clientX, y: e.clientY, t: performance.now() };
+  }, { passive: true });
+  stage.addEventListener('pointerup', e => {
+    if (!start || !e.isPrimary) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    const dt = performance.now() - start.t;
+    start = null;
+    const ax = Math.abs(dx), ay = Math.abs(dy), dist = Math.max(ax, ay);
+    if (dt > 800 || dist < 20) return;
+    if (dist < 45 && dist / dt < 0.3) return;   // 거리 또는 속도 기준
+    swiped = true;
+    setTimeout(() => { swiped = false; }, 350);
+    if (ax > ay) { if (dx < 0) next(); else prev(); }
+  }, { passive: true });
+  stage.addEventListener('pointercancel', () => { start = null; }, { passive: true });
+
+  stage.addEventListener('click', e => {
+    if (swiped || e.defaultPrevented) return;
+    if (e.target.closest('a, button, input, textarea, select, video, audio, [data-no-nav]')) return;
+    if (String(getSelection())) return;
+    if (e.clientX < innerWidth * 0.3) prev(); else next();
+  });
+
+  /* ---------------------------------------------------------
+     10. Presenter view
+     --------------------------------------------------------- */
+  let t0 = Date.now();
+
+  function buildPresenter() {
+    document.body.classList.add('presenter');
+    document.title = '발표자 보기 · ' + document.title;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="pv">
+        <section class="pv-main">
+          <h2 class="pv-label">현재</h2>
+          <div class="pv-frame" id="pv-cur"></div>
+        </section>
+        <section class="pv-notes">
+          <h2 class="pv-label">노트</h2>
+          <div id="pv-notes"></div>
+        </section>
+        <section class="pv-side">
+          <h2 class="pv-label">다음</h2>
+          <div class="pv-frame" id="pv-next"></div>
+          <div class="pv-meta">
+            <button class="pv-timer" id="pv-timer" type="button" title="클릭하면 0으로 초기화">00:00</button>
+            <div id="pv-clock"></div>
+            <div id="pv-count"></div>
+            <div class="pv-status" id="pv-status"></div>
+          </div>
+        </section>
+      </div>`);
+    $('#pv-timer').addEventListener('click', e => { t0 = Date.now(); tick(); e.currentTarget.blur(); });
+    setInterval(tick, 1000);
+    tick();
+    addEventListener('resize', updatePresenter);
+  }
+
+  function tick() {
+    const sec = Math.floor((Date.now() - t0) / 1000);
+    const pad = n => String(n).padStart(2, '0');
+    $('#pv-timer').textContent = `${pad(Math.floor(sec / 60))}:${pad(sec % 60)}`;
+    $('#pv-clock').textContent = '현재 시각 ' + new Date().toLocaleTimeString();
+  }
+
+  // 슬라이드는 뷰포트 크기를 따르므로, 미리보기는 기준 화면(1600×900)에 완성 상태로 그린 뒤 축소
+  function snapshot(frame, c) {
+    renderSteps(c, steps[c].length);
+    const node = slides[c].cloneNode(true);
+    node.classList.remove('is-leaving', 'is-entering');
+    node.classList.add('is-preview');
+    node.removeAttribute('aria-hidden');
+    node.inert = true;
+    node.style.width = PREVIEW.w + 'px';
+    node.style.height = PREVIEW.h + 'px';
+    node.style.setProperty('--fs', PREVIEW.fs);
+    node.style.transform = `scale(${frame.clientWidth / PREVIEW.w})`;
+    frame.replaceChildren(node);
+  }
+
+  function updatePresenter() {
+    const { cur } = state;
+    if (cur < total - 1) snapshot($('#pv-next'), cur + 1);
+    else $('#pv-next').innerHTML = '<p class="pv-end">마지막입니다</p>';
+    snapshot($('#pv-cur'), cur);
+    const notes = slides[cur].querySelector('aside.notes');
+    $('#pv-notes').innerHTML = notes ? notes.innerHTML : '<em>노트 없음</em>';
+    $('#pv-count').textContent = `슬라이드 ${cur + 1} / ${total}`;
+  }
+
+  /* ---------------------------------------------------------
+     11. Init
+     --------------------------------------------------------- */
+  slides.forEach((el, i) => {
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-roledescription', 'slide');
+    el.setAttribute('aria-label', `${i + 1} / ${total}`);
+  });
+
+  const initial = parseHash();
+  if (initial !== null) state.cur = clamp(initial, 0, total - 1);
+  if (isPresenter) buildPresenter();
+  renderSteps(state.cur, 0);
+  setSlideStates(state.cur);
+  updateUI();
+  writeHash();
+  playSteps(state.cur, 1);
+  if (isPresenter) send({ type: 'hello' });
+
+  // 다른 스크립트에서 확장할 수 있도록 최소 API 노출
+  window.deck = {
+    goTo, next, prev,
+    get state() { return { ...state }; },
+    get total() { return total; },
+    onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+  };
+})();
+</script>
+</body>
+</html>

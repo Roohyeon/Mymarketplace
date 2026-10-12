@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code, 도대체 어떻게 작동하는 걸까?</title>
+<style>
+  /* =========================================================
+     Tokens — dark steel, tech-editorial
+     ========================================================= */
+  :root {
+    --bg: #0b0e13;
+    --surface: #131922;
+    --surface-2: #1a222e;
+    --term: #07090d;
+    --line: rgba(148, 163, 184, .16);
+    --line-strong: rgba(148, 163, 184, .34);
+    --grid: rgba(148, 163, 184, .045);
+    --ink: #e8edf3;
+    --muted: #9aa6b5;
+    --dim: #627083;
+    --accent: #7cc4e8;
+    --accent-soft: rgba(124, 196, 232, .12);
+    --silver: #c9d6e3;
+    --steel: #9fb4c8;
+    --deep: #5a8fb0;
+    --ok: #6fcf97;
+    --warn: #e8b25c;
+    --danger: #e07a6a;
+    --on-light: #0b0e13;
+    --letterbox: #000;
+
+    --font: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
+    --mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+
+    --dur: .4s;          /* 슬라이드 전환 시간 */
+  }
+  @media (prefers-reduced-motion: reduce) { :root { --dur: 0s; } }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--letterbox); color: var(--ink); font-family: var(--font); overflow: hidden; }
+
+  /* =========================================================
+     Layout — 1920×1080 고정 캔버스를 화면에 맞춰 scale
+     ========================================================= */
+  .stage { position: fixed; inset: 0; height: 100vh; height: 100dvh; overflow: hidden; }
+  .deck {
+    position: absolute; left: 50%; top: 50%;
+    width: 1920px; height: 1080px;
+    transform: translate(-50%, -50%) scale(var(--scale, 1));
+    overflow: hidden; background: var(--bg);
+  }
+
+  /* 모든 슬라이드는 같은 자리에 겹쳐 쌓고, 활성 슬라이드만 보인다 (display:none 금지) */
+  .slide {
+    position: absolute; inset: 0;
+    padding: 120px 160px;
+    display: flex; flex-direction: column; justify-content: center; gap: 36px;
+    font-size: 40px; line-height: 1.5;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 80px 80px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 80px 80px,
+      var(--bg);
+    opacity: 0; visibility: hidden;
+    transition: opacity var(--dur) ease, visibility 0s linear var(--dur);
+    contain: layout paint style;
+  }
+  .slide.is-active { opacity: 1; visibility: visible; transition-delay: 0s; }
+
+  /* =========================================================
+     Slide content
+     ========================================================= */
+  .slide h1 { margin: 0; font-size: 96px; line-height: 1.15; letter-spacing: -.02em; }
+  .slide h2 { margin: 0; font-size: 68px; line-height: 1.2; letter-spacing: -.015em; }
+  .slide h3 { margin: 0; font-size: 44px; line-height: 1.3; }
+  .slide p { margin: 0; }
+  .slide ul, .slide ol { margin: 0; padding-left: 1.2em; display: grid; gap: 20px; }
+  .slide li::marker { color: var(--accent); }
+  .slide code { font-family: var(--mono); font-size: .85em; padding: .05em .3em; border-radius: 8px; background: var(--surface); }
+
+  .eyebrow { font-family: var(--mono); font-size: 28px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  .lead { font-size: 44px; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+
+  .slide--title { align-items: flex-start; }
+  .slide--title h1 { font-size: 120px; }
+  .slide--center { align-items: center; text-align: center; }
+  .slide.hero {
+    background:
+      radial-gradient(70% 70% at 15% 10%, rgba(124, 196, 232, .14) 0%, transparent 60%),
+      radial-gradient(60% 60% at 95% 100%, rgba(201, 214, 227, .07) 0%, transparent 60%),
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 80px 80px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 80px 80px,
+      var(--bg);
+  }
+
+  .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 64px; align-items: start; }
+  .cols--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
+  .cols--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 32px; }
+  .card { padding: 40px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 16px; align-content: start; }
+  .card p { font-size: 30px; line-height: 1.5; color: var(--muted); }
+  .tag { font: 700 28px/1 var(--mono); letter-spacing: .1em; color: var(--dim); text-transform: uppercase; }
+
+  /* ---------- Terminal / file window ---------- */
+  .term {
+    border-radius: 20px; overflow: hidden;
+    background: var(--term); border: 1px solid var(--line-strong);
+    box-shadow: 0 40px 80px -40px rgba(0, 0, 0, .9), 0 0 0 1px rgba(124, 196, 232, .05);
+    font: 30px/1.6 var(--mono); font-variant-ligatures: none;
+  }
+  .term-bar {
+    height: 60px; padding: 0 24px; display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  .term-bar i { width: 16px; height: 16px; border-radius: 50%; background: var(--line-strong); }
+  .term-bar span { margin-left: 16px; font-size: 26px; color: var(--dim); }
+  .term-body { padding: 36px 44px; display: grid; gap: 10px; white-space: pre; }
+  .t-prompt { color: var(--accent); }
+  .t-tool { color: var(--silver); font-weight: 700; }
+  .t-dim { color: var(--dim); }
+  .t-ok { color: var(--ok); }
+  .t-h { color: var(--accent); font-weight: 700; }
+
+  .hook { display: grid; grid-template-columns: minmax(0, 1fr) 860px; gap: 80px; align-items: center; }
+  .hook h1 { font-size: 88px; }
+  .hook .lead { margin-top: 36px; }
+  .brand { display: inline-flex; align-items: center; gap: 16px; font: 700 32px/1 var(--mono); color: var(--silver); }
+  .brand b { width: 14px; height: 14px; border-radius: 3px; background: var(--accent); }
+
+  /* ---------- Agenda chips ---------- */
+  .agenda { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; width: 100%; margin-top: 24px; }
+  .agenda div { padding: 32px 36px; border-top: 3px solid var(--accent); background: var(--surface); border-radius: 0 0 16px 16px; }
+  .agenda b { display: block; font: 700 28px/1 var(--mono); color: var(--accent); margin-bottom: 16px; }
+  .agenda span { font-size: 36px; font-weight: 700; }
+
+  /* ---------- Model ↔ Harness ---------- */
+  .duo { display: grid; grid-template-columns: minmax(0, 1fr) 260px minmax(0, 1fr); align-items: center; }
+  .role-card { padding: 52px; border-radius: 24px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 20px; }
+  .role-card.is-model { border-color: rgba(124, 196, 232, .45); background: linear-gradient(160deg, rgba(124, 196, 232, .1), transparent 60%), var(--surface); }
+  .role-word { font-size: 84px; font-weight: 800; line-height: 1; letter-spacing: -.02em; }
+  .is-model .role-word { color: var(--accent); }
+  .is-harness .role-word { color: var(--silver); }
+  .role-card ul { font-size: 34px; color: var(--muted); }
+
+  /* ---------- SVG diagrams ---------- */
+  svg { display: block; overflow: visible; }
+  .s-line { fill: none; stroke: var(--line-strong); stroke-width: 4; }
+  .s-accent { fill: none; stroke: var(--accent); stroke-width: 5; }
+  .s-head { fill: var(--line-strong); }
+  .s-head-accent { fill: var(--accent); }
+  .s-label { fill: var(--muted); font: 700 28px var(--mono); }
+  .s-node { fill: var(--surface); stroke: var(--accent); stroke-width: 3; }
+  .s-num { fill: var(--accent); font: 700 28px var(--mono); }
+  .s-title { fill: var(--ink); font: 700 30px var(--font); }
+  .s-center { fill: var(--muted); font: 700 32px var(--font); }
+  .s-center-big { fill: var(--ink); font: 800 48px var(--font); }
+  .s-main { fill: none; stroke: var(--steel); stroke-width: 6; stroke-linecap: round; }
+  .s-branch { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; }
+  .s-commit { fill: var(--bg); stroke: var(--steel); stroke-width: 5; }
+  .s-commit-accent { fill: var(--bg); stroke: var(--accent); stroke-width: 5; }
+  .s-merge { fill: var(--ok); }
+  .s-text { fill: var(--muted); font: 600 28px var(--font); }
+  .s-text-ink { fill: var(--ink); font: 700 30px var(--font); }
+
+  /* ---------- Loop ---------- */
+  .loop { display: grid; grid-template-columns: minmax(0, 1fr) 720px; gap: 80px; align-items: center; }
+  .loop-text { display: grid; gap: 40px; }
+  .steps { list-style: none; padding: 0 !important; display: grid; gap: 28px !important; }
+  .steps li { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 24px; align-items: start; }
+  .steps .n { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--accent); color: var(--accent); font: 700 28px/1 var(--mono); }
+  .steps strong { display: block; font-size: 38px; line-height: 1.3; }
+  .steps span { font-size: 30px; color: var(--muted); }
+  .note { padding: 24px 32px; border-left: 4px solid var(--ok); background: var(--surface); border-radius: 0 14px 14px 0; font-size: 30px; color: var(--muted); }
+  .note b { color: var(--ink); }
+
+  /* ---------- Tools ---------- */
+  .tool { padding: 44px 36px; min-height: 380px; }
+  .tool .glyph { font: 700 44px/1 var(--mono); color: var(--dim); }
+  .tool h3 { font-family: var(--mono); font-size: 44px; color: var(--accent); }
+
+  /* ---------- Context bar ---------- */
+  .ctx-wrap { display: grid; gap: 20px; }
+  .ctx { display: flex; height: 132px; border: 1px solid var(--line-strong); border-radius: 18px; overflow: hidden; }
+  .ctx span { display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 700; color: var(--on-light); border-right: 2px solid var(--bg); }
+  .ctx .c1 { flex: 0 0 11%; background: var(--silver); }
+  .ctx .c2 { flex: 0 0 22%; background: var(--steel); }
+  .ctx .c3 { flex: 0 0 30%; background: var(--accent); }
+  .ctx .c4 { flex: 0 0 23%; background: var(--deep); color: var(--ink); }
+  .ctx .free { flex: 1; color: var(--dim); border: 0; background: repeating-linear-gradient(45deg, transparent 0 14px, rgba(148, 163, 184, .07) 14px 28px); }
+  .ctx-scale { display: flex; justify-content: space-between; font: 600 28px/1 var(--mono); color: var(--dim); }
+  .ctx-scale b { color: var(--warn); }
+
+  /* ---------- Compaction pipeline ---------- */
+  .pipe { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 48px; }
+  .pipe-step { position: relative; padding: 32px 28px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 12px; align-content: start; min-height: 250px; }
+  .pipe-step:not(:last-child)::after { content: "→"; position: absolute; top: 50%; right: -24px; transform: translate(50%, -50%); font: 700 36px/1 var(--mono); color: var(--dim); }
+  .pipe-step b { font: 700 28px/1 var(--mono); color: var(--accent); }
+  .pipe-step strong { font-size: 38px; line-height: 1.2; }
+  .pipe-step span { font-size: 28px; line-height: 1.45; color: var(--muted); }
+  .squeeze { display: grid; grid-template-columns: 200px minmax(0, 1fr) 260px; gap: 20px 32px; align-items: center; font-size: 30px; }
+  .squeeze .k { color: var(--muted); font-weight: 700; }
+  .squeeze .v { font: 700 28px/1 var(--mono); color: var(--muted); }
+  .meter { height: 36px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: var(--w); border-radius: inherit; background: var(--warn); }
+  .meter.is-after i { background: var(--accent); }
+
+  /* ---------- Memory ---------- */
+  .mem { display: grid; grid-template-columns: minmax(0, 1fr) 780px; gap: 64px; align-items: center; }
+  .mem-cards { display: grid; gap: 28px; }
+  .mem-cards h3 { font-family: var(--mono); color: var(--accent); font-size: 40px; }
+  .mem .term-body { gap: 4px; }
+
+  /* ---------- Permission spectrum ---------- */
+  .spectrum-wrap { display: grid; gap: 28px; }
+  .spectrum-ends { display: flex; justify-content: space-between; font: 700 28px/1 var(--mono); color: var(--muted); }
+  .spectrum { position: relative; height: 18px; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--silver) 45%, var(--warn) 75%, var(--danger)); }
+  .spectrum i { position: absolute; top: 50%; width: 40px; height: 40px; border-radius: 50%; background: var(--bg); border: 5px solid var(--ink); transform: translate(-50%, -50%); }
+  .spectrum i:nth-child(1) { left: 12.5%; }
+  .spectrum i:nth-child(2) { left: 37.5%; }
+  .spectrum i:nth-child(3) { left: 62.5%; }
+  .spectrum i:nth-child(4) { left: 87.5%; }
+  .modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; text-align: center; }
+  .modes div { display: grid; gap: 12px; }
+  .modes code { justify-self: center; font-size: 32px; padding: 6px 14px; color: var(--ink); background: var(--surface-2); }
+  .modes span { font-size: 30px; color: var(--muted); line-height: 1.45; }
+
+  /* ---------- Classifier flow ---------- */
+  .flow { display: grid; grid-template-columns: minmax(0, 1fr) 90px minmax(0, 1.1fr) 90px minmax(0, 1.2fr); align-items: center; }
+  .flow .arrow { text-align: center; font: 700 52px/1 var(--mono); color: var(--dim); }
+  .box { padding: 40px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 12px; }
+  .box strong { font-size: 38px; line-height: 1.3; }
+  .box span { font-size: 30px; color: var(--muted); }
+  .box.hub { border: 2px solid var(--accent); background: linear-gradient(160deg, rgba(124, 196, 232, .14), transparent 70%), var(--surface); text-align: center; padding: 52px 40px; }
+  .box.hub strong { font-family: var(--mono); color: var(--accent); font-size: 40px; }
+  .outcomes { display: grid; gap: 24px; }
+  .outcomes .box { padding: 28px 36px; border-left: 6px solid var(--ok); }
+  .outcomes .box.is-warn { border-left-color: var(--warn); }
+  .outcomes strong { font-size: 34px; }
+  .badge { font: 700 28px/1 var(--mono); }
+  .is-safe .badge { color: var(--ok); }
+  .is-warn .badge { color: var(--warn); }
+
+  /* ---------- Summary pillars ---------- */
+  .pillar { padding: 48px 44px; min-height: 480px; border-top: 4px solid var(--accent); border-radius: 0 0 20px 20px; gap: 24px; }
+  .pillar .big { font: 800 88px/1 var(--mono); color: var(--accent); }
+  .pillar h3 { font-size: 40px; }
+  .pillar ul { font-size: 30px; color: var(--muted); gap: 14px; }
+
+  /* ---------- Harness OS ---------- */
+  .future { display: grid; grid-template-columns: minmax(0, 1fr) 760px; gap: 80px; align-items: center; }
+  .future-text { display: grid; gap: 44px; }
+  .shift { display: grid; gap: 28px; }
+  .shift div { display: grid; gap: 8px; }
+  .shift .was { font-size: 40px; color: var(--dim); text-decoration: line-through 3px var(--dim); }
+  .shift .next { font-size: 44px; font-weight: 700; }
+  .os { display: grid; gap: 20px; }
+  .os-model { padding: 32px; border-radius: 18px; border: 2px dashed var(--line-strong); text-align: center; font-size: 34px; color: var(--muted); }
+  .os-model b { color: var(--ink); }
+  .os-core { padding: 40px; border-radius: 24px; border: 2px solid var(--accent); background: linear-gradient(160deg, rgba(124, 196, 232, .14), transparent 70%), var(--surface); display: grid; gap: 28px; }
+  .os-core h3 { font-family: var(--mono); color: var(--accent); font-size: 48px; text-align: center; }
+  .os-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .os-grid span { padding: 24px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); text-align: center; font-size: 32px; font-weight: 700; }
+
+  /* ---------- Closing ---------- */
+  .qa { font-size: 220px !important; line-height: 1 !important; letter-spacing: 0 !important; }
+
+  /* =========================================================
+     Slide number
+     ========================================================= */
+  .counter {
+    position: absolute; right: 48px; bottom: 36px; z-index: 10;
+    font: 700 26px/1 var(--mono); color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+
+  aside.notes { display: none; }   /* 발표자 메모 자리 (화면에는 표시하지 않음) */
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <main class="deck" aria-roledescription="carousel" aria-label="Claude Code, 도대체 어떻게 작동하는 걸까?">
+
+    <!-- ===== SLIDES START ===== -->
+
+    <!-- 1. HOOK -->
+    <section class="slide hero">
+      <div class="hook">
+        <div>
+          <p class="brand"><b></b>Claude Code</p>
+          <h1 style="margin-top:36px">명령 하나로<br>읽고, 고치고,<br><span class="accent">테스트까지.</span></h1>
+          <p class="lead">터미널에서 일하는<br>AI 코딩 에이전트</p>
+        </div>
+        <div class="term" aria-label="터미널 예시">
+          <div class="term-bar"><i></i><i></i><i></i><span>~/my-app</span></div>
+          <div class="term-body"><span><span class="t-prompt">$</span> claude "로그인 버그 고쳐줘"</span>
+<span class="t-dim">  </span>
+<span><span class="t-dim">●</span> <span class="t-tool">Read</span>  src/auth/login.ts</span>
+<span><span class="t-dim">●</span> <span class="t-tool">Edit</span>  src/auth/login.ts <span class="t-dim">(+4 −2)</span></span>
+<span><span class="t-dim">●</span> <span class="t-tool">Bash</span>  npm test</span>
+<span class="t-ok">  ✓ 24 passed</span>
+<span class="t-dim">  </span>
+<span><span class="t-ok">✔</span> 세션 만료 버그를 수정했습니다.</span></div>
+        </div>
+      </div>
+      <aside class="notes">터미널에 명령 하나 치면, AI가 알아서 코드를 읽고, 수정하고, 테스트까지 돌려준다면? 이게 바로 Claude Code입니다.</aside>
+    </section>
+
+    <!-- 2. TITLE -->
+    <section class="slide slide--title hero">
+      <p class="eyebrow">How it works · ~7 min</p>
+      <h1>Claude Code<br>작동 원리</h1>
+      <p class="lead">어렵지 않습니다. 딱 3가지만 기억하세요.</p>
+      <div class="agenda">
+        <div><b>01</b><span>Agentic Loop &amp; Harness</span></div>
+        <div><b>02</b><span>Context &amp; Memory</span></div>
+        <div><b>03</b><span>Safety &amp; Permission</span></div>
+      </div>
+      <aside class="notes">안녕하세요! 오늘은 Claude Code가 내부적으로 어떻게 작동하는지, 핵심만 쏙쏙 뽑아서 쉽게 설명드릴게요. 어렵지 않습니다. 딱 3가지만 기억하시면 됩니다.</aside>
+    </section>
+
+    <!-- 3. MODEL & HARNESS -->
+    <section class="slide">
+      <p class="eyebrow">01 · Agentic Loop &amp; Harness</p>
+      <h2>생각은 모델이, 실행은 Harness가</h2>
+      <div class="duo">
+        <div class="role-card is-model">
+          <p class="tag">Claude Model</p>
+          <p class="role-word">Thinking</p>
+          <ul><li>요청 이해 · 추론</li><li>계획 세우기</li><li>다음 행동 결정</li></ul>
+        </div>
+        <svg viewBox="0 0 260 260" width="260" height="260" aria-hidden="true">
+          <defs>
+            <marker id="ah-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path class="s-head-accent" d="M0 0 L10 5 L0 10 z"/></marker>
+            <marker id="ah-b" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path class="s-head" d="M0 0 L10 5 L0 10 z"/></marker>
+          </defs>
+          <text class="s-label" x="130" y="80" text-anchor="middle">tool call</text>
+          <line class="s-accent" x1="24" y1="104" x2="230" y2="104" marker-end="url(#ah-a)"/>
+          <line class="s-line" x1="236" y1="166" x2="30" y2="166" marker-end="url(#ah-b)"/>
+          <text class="s-label" x="130" y="214" text-anchor="middle">result</text>
+        </svg>
+        <div class="role-card is-harness">
+          <p class="tag">Harness</p>
+          <p class="role-word">Action</p>
+          <ul><li>터미널 명령 실행</li><li>파일 읽기 · 쓰기</li><li>도구 호출 처리</li></ul>
+        </div>
+      </div>
+      <aside class="notes">첫 번째는 Agentic Loop와 Harness 구조입니다. Claude AI 모델은 추론(Thinking)을 담당하고, Harness는 터미널/파일 읽기 등의 실행(Action)을 담당하는 구조입니다.</aside>
+    </section>
+
+    <!-- 4. AGENTIC LOOP -->
+    <section class="slide">
+      <div class="loop">
+        <div class="loop-text">
+          <p class="eyebrow">01 · Agentic Loop</p>
+          <h2>3단계 루프를<br>목표 달성까지 반복</h2>
+          <ol class="steps">
+            <li><span class="n">1</span><div><strong>모델 추론</strong><span>지금 상황에서 무엇을 할지 결정</span></div></li>
+            <li><span class="n">2</span><div><strong>Tool 실행</strong><span>Harness가 실제 명령·파일 작업 수행</span></div></li>
+            <li><span class="n">3</span><div><strong>결과 피드백</strong><span>실행 결과를 다시 모델에게 전달</span></div></li>
+          </ol>
+          <p class="note"><b>탈출 조건</b> — 더 이상 도구가 필요 없으면 최종 답변</p>
+        </div>
+        <svg viewBox="0 0 720 720" width="720" height="720" aria-hidden="true">
+          <defs>
+            <marker id="ah-loop" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path class="s-head-accent" d="M0 0 L10 5 L0 10 z"/></marker>
+          </defs>
+          <!-- center (360,380), r=250 · nodes at -90°, 30°, 150° -->
+          <path class="s-accent" d="M 461.7 151.6 A 250 250 0 0 1 608.6 406.1" marker-end="url(#ah-loop)"/>
+          <path class="s-accent" d="M 506.9 582.3 A 250 250 0 0 1 213.1 582.3" marker-end="url(#ah-loop)"/>
+          <path class="s-accent" d="M 111.4 406.1 A 250 250 0 0 1 258.3 151.6" marker-end="url(#ah-loop)"/>
+
+          <circle class="s-node" cx="360" cy="130" r="96"/>
+          <text class="s-num" x="360" y="114" text-anchor="middle">01</text>
+          <text class="s-title" x="360" y="160" text-anchor="middle">모델 추론</text>
+
+          <circle class="s-node" cx="576.5" cy="505" r="96"/>
+          <text class="s-num" x="576.5" y="489" text-anchor="middle">02</text>
+          <text class="s-title" x="576.5" y="535" text-anchor="middle">Tool 실행</text>
+
+          <circle class="s-node" cx="143.5" cy="505" r="96"/>
+          <text class="s-num" x="143.5" y="489" text-anchor="middle">03</text>
+          <text class="s-title" x="143.5" y="535" text-anchor="middle">결과 피드백</text>
+
+          <text class="s-center" x="360" y="370" text-anchor="middle">목표 달성까지</text>
+          <text class="s-center-big" x="360" y="428" text-anchor="middle">반복 ↻</text>
+        </svg>
+      </div>
+      <aside class="notes">이 동작은 1. 모델 추론, 2. Tool 실행, 3. 결과 피드백 — 3단계 루프를 계속 반복하면서 사용자의 목표를 달성해 나갑니다.</aside>
+    </section>
+
+    <!-- 5. TOOLS -->
+    <section class="slide">
+      <p class="eyebrow">01 · Built-in Tools</p>
+      <h2>Harness가 제공하는 핵심 도구</h2>
+      <div class="cols cols--4">
+        <div class="card tool"><span class="glyph">$_</span><h3>Bash</h3><p>터미널 명령 실행<br>빌드 · 테스트 · git</p></div>
+        <div class="card tool"><span class="glyph">{ }</span><h3>Read / Edit</h3><p>파일 읽기 ·<br>필요한 부분만 수정</p></div>
+        <div class="card tool"><span class="glyph">⌕</span><h3>Web Search</h3><p>최신 문서 ·<br>에러 메시지 검색</p></div>
+        <div class="card tool"><span class="glyph">⇄</span><h3>MCP</h3><p>외부 서비스 연결<br>DB · 이슈 · 디자인 툴</p></div>
+      </div>
+      <p class="lead">모델은 도구를 <span class="accent">호출</span>하고, 실행은 Harness가 맡습니다.</p>
+      <aside class="notes">Harness가 제공하는 핵심 도구에는 Bash 실행, Read/Edit 파일 수정, Web Search, MCP 연결 등이 있습니다.</aside>
+    </section>
+
+    <!-- 6. CONTEXT -->
+    <section class="slide">
+      <p class="eyebrow">02 · Context &amp; Memory</p>
+      <h2>모든 것이 컨텍스트에 쌓인다</h2>
+      <div class="ctx-wrap">
+        <div class="ctx" aria-label="컨텍스트 구성 예시">
+          <span class="c1">지침</span>
+          <span class="c2">대화 기록</span>
+          <span class="c3">읽은 파일</span>
+          <span class="c4">실행 결과</span>
+          <span class="free">여유</span>
+        </div>
+        <div class="ctx-scale"><span>0 tokens</span><b>컨텍스트 한계 ▲</b></div>
+      </div>
+      <div class="cols cols--3">
+        <div class="card"><p class="tag">Files</p><h3>읽은 파일</h3><p>Read로 연 코드 전체</p></div>
+        <div class="card"><p class="tag">Outputs</p><h3>실행 결과</h3><p>테스트 · 빌드 로그</p></div>
+        <div class="card"><p class="tag">History</p><h3>대화 기록</h3><p>요청 · 응답 · 도구 호출 내역</p></div>
+      </div>
+      <aside class="notes">두 번째는 Context 관리입니다. 읽은 파일, 실행 결과, 대화 기록이 모두 컨텍스트에 쌓여 AI의 기억 공간을 구성합니다.</aside>
+    </section>
+
+    <!-- 7. COMPACTION -->
+    <section class="slide">
+      <p class="eyebrow">02 · Compaction Pipeline</p>
+      <h2>한계에 다다르면, 요약해서 이어 간다</h2>
+      <div class="pipe">
+        <div class="pipe-step"><b>01</b><strong>감지</strong><span>사용량이<br>임계치 도달</span></div>
+        <div class="pipe-step"><b>02</b><strong>정리</strong><span>오래된<br>도구 출력 비우기</span></div>
+        <div class="pipe-step"><b>03</b><strong>요약</strong><span>대화 흐름을<br>요약</span></div>
+        <div class="pipe-step"><b>04</b><strong>보존</strong><span>목표 · 결정<br>수정 파일 유지</span></div>
+        <div class="pipe-step"><b>05</b><strong>재개</strong><span>요약을 바탕으로<br>작업 계속</span></div>
+      </div>
+      <div class="squeeze">
+        <span class="k">압축 전</span><div class="meter"><i style="--w:94%"></i></div><span class="v">94% 사용</span>
+        <span class="k">압축 후</span><div class="meter is-after"><i style="--w:28%"></i></div><span class="v">핵심 맥락 유지</span>
+      </div>
+      <aside class="notes">컨텍스트가 커져 한계에 다다르면 5단계 Compaction 파이프라인이 작동해 중요 정보만 요약하여 맥락을 유지합니다.</aside>
+    </section>
+
+    <!-- 8. MEMORY -->
+    <section class="slide">
+      <div class="mem">
+        <div class="mem-cards">
+          <p class="eyebrow">02 · Persistent Memory</p>
+          <h2>세션이 끝나도<br>남는 기억</h2>
+          <div class="card"><h3>CLAUDE.md</h3><p>프로젝트 루트에 두는 지침 파일.<br>세션을 시작할 때마다 읽어 들임</p></div>
+          <div class="card"><h3>Auto Memory</h3><p>작업하며 알게 된 사실을<br>에이전트가 스스로 기록</p></div>
+        </div>
+        <div class="term" aria-label="CLAUDE.md 예시">
+          <div class="term-bar"><i></i><i></i><i></i><span>CLAUDE.md</span></div>
+          <div class="term-body"><span class="t-h"># 프로젝트 지침</span>
+<span class="t-dim"> </span>
+<span class="t-h">## 명령어</span>
+<span>- 테스트: <span class="t-tool">npm test</span></span>
+<span>- 린트: <span class="t-tool">npm run lint</span></span>
+<span class="t-dim"> </span>
+<span class="t-h">## 규칙</span>
+<span>- 커밋 메시지는 한국어로</span>
+<span>- src/legacy 는 수정 금지</span>
+<span class="t-dim"> </span>
+<span class="t-dim">&lt;!-- 사람이 읽고 고칠 수 있는 기억 --&gt;</span></div>
+        </div>
+      </div>
+      <aside class="notes">세션이 끝나도 지침을 유지하기 위해 프로젝트 루트의 CLAUDE.md와 Auto Memory를 활용해 투명한 기억장치를 만듭니다.</aside>
+    </section>
+
+    <!-- 9. PERMISSION MODES -->
+    <section class="slide">
+      <p class="eyebrow">03 · Safety &amp; Permission</p>
+      <h2>7가지 권한 모드로 자율 범위를 통제</h2>
+      <div class="spectrum-wrap">
+        <div class="spectrum-ends"><span>◀ 통제</span><span>자율 ▶</span></div>
+        <div class="spectrum" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="modes">
+          <div><code>plan</code><span>읽고 계획만,<br>수정은 하지 않음</span></div>
+          <div><code>default</code><span>위험할 수 있는 작업은<br>매번 확인</span></div>
+          <div><code>acceptEdits</code><span>파일 수정은<br>자동 승인</span></div>
+          <div><code>bypassPermissions</code><span>확인 없이 실행<br>격리 환경 전용</span></div>
+        </div>
+      </div>
+      <p class="lead">상황에 맞게 에이전트에게 맡길 범위를 고릅니다.</p>
+      <aside class="notes">세 번째는 안전/권한 프레임워크입니다. plan, default, bypassPermissions 등 7가지 모드로 에이전트의 자율 동작 범위를 통제합니다. (화면에는 대표 모드 4개만 표시)</aside>
+    </section>
+
+    <!-- 10. CLASSIFIER -->
+    <section class="slide">
+      <p class="eyebrow">03 · YOLO Classifier</p>
+      <h2>매번 승인 팝업? 분류기가 걸러 준다</h2>
+      <div class="flow">
+        <div class="box"><p class="tag">Request</p><strong>도구 호출 요청</strong><span>예: <code>npm test</code></span></div>
+        <div class="arrow">→</div>
+        <div class="box hub"><strong>YOLO<br>Classifier</strong><span>ML로 안전 여부 예측</span></div>
+        <div class="arrow">→</div>
+        <div class="outcomes">
+          <div class="box is-safe"><span class="badge">✓ SAFE</span><strong>자동으로 실행</strong></div>
+          <div class="box is-warn"><span class="badge">! RISKY</span><strong>사용자에게 확인</strong></div>
+        </div>
+      </div>
+      <p class="lead">사람은 정말 중요한 순간에만 판단 → <span class="accent">확인 피로 최소화</span></p>
+      <aside class="notes">매번 승인 팝업이 뜨면 피곤하겠죠? YOLO ML 분류기가 안전한 작업을 예측해 인간의 확인 피로를 최소화합니다.</aside>
+    </section>
+
+    <!-- 11. WORKTREE -->
+    <section class="slide">
+      <p class="eyebrow">03 · Isolated Execution</p>
+      <h2>격리된 Git Worktree에서 먼저 검증</h2>
+      <svg viewBox="0 0 1600 400" width="1600" height="400" aria-label="main 브랜치에서 임시 worktree로 분기해 수정·테스트 후 다시 합치는 흐름">
+        <text class="s-text" x="40" y="390">main · 작업 중인 코드베이스</text>
+        <line class="s-main" x1="40" y1="310" x2="1560" y2="310"/>
+        <path class="s-branch" d="M 320 310 C 430 310, 410 110, 520 110 L 1080 110 C 1190 110, 1170 310, 1280 310"/>
+        <circle class="s-commit" cx="120" cy="310" r="18"/>
+        <circle class="s-commit" cx="320" cy="310" r="18"/>
+        <circle class="s-commit" cx="1480" cy="310" r="18"/>
+        <circle class="s-merge" cx="1280" cy="310" r="22"/>
+        <text class="s-text-ink" x="1280" y="380" text-anchor="middle">검증 후 반영</text>
+
+        <text class="s-label" x="520" y="56" style="fill:var(--accent)">임시 Worktree · 사이드체인</text>
+        <circle class="s-commit-accent" cx="660" cy="110" r="18"/>
+        <circle class="s-commit-accent" cx="900" cy="110" r="18"/>
+        <text class="s-text-ink" x="660" y="180" text-anchor="middle">코드 수정</text>
+        <text class="s-text-ink" x="900" y="180" text-anchor="middle" style="fill:var(--ok)">테스트 통과 ✓</text>
+      </svg>
+      <div class="cols cols--3">
+        <div class="card"><h3>격리</h3><p>원본 디렉터리는 그대로</p></div>
+        <div class="card"><h3>백그라운드</h3><p>사용자 작업과 동시에 진행</p></div>
+        <div class="card"><h3>검증 후 반영</h3><p>통과한 변경만 코드베이스로</p></div>
+      </div>
+      <aside class="notes">코드베이스 오염을 막기 위해 백그라운드에서 임시 Git Worktree 사이드체인을 생성해 격리된 공간에서 검증을 완료합니다.</aside>
+    </section>
+
+    <!-- 12. SUMMARY -->
+    <section class="slide">
+      <p class="eyebrow">Summary</p>
+      <h2>Claude Code의 3가지 축</h2>
+      <div class="cols cols--3">
+        <div class="card pillar"><span class="big">01</span><h3>Agentic Loop</h3><ul><li>추론 → 실행 → 피드백</li><li>Harness가 도구 실행</li></ul></div>
+        <div class="card pillar"><span class="big">02</span><h3>Context &amp; Memory</h3><ul><li>컨텍스트 누적 · 압축</li><li>CLAUDE.md 영속 메모리</li></ul></div>
+        <div class="card pillar"><span class="big">03</span><h3>Safety &amp; Permission</h3><ul><li>7가지 권한 모드</li><li>분류기 · Worktree 격리</li></ul></div>
+      </div>
+      <aside class="notes">정리하자면, 1) Agentic Loop 실행, 2) 효율적 Context/Memory 관리, 3) 촘촘한 Safety/Permission이 Claude Code의 핵심입니다.</aside>
+    </section>
+
+    <!-- 13. FUTURE -->
+    <section class="slide">
+      <div class="future">
+        <div class="future-text">
+          <p class="eyebrow">What's next</p>
+          <h2>앞으로의 핵심은<br><span class="accent">Harness OS</span></h2>
+          <div class="shift">
+            <div><p class="tag">Before</p><p class="was">더 복잡한 추론 체인</p></div>
+            <div><p class="tag">Next</p><p class="next">에이전트가 안전하고 자유롭게<br>움직일 수 있는 인프라</p></div>
+          </div>
+        </div>
+        <div class="os" aria-label="모델 아래에서 Harness OS가 도구, 컨텍스트, 권한, 격리를 제공하는 구조">
+          <div class="os-model"><b>Model</b> · 추론</div>
+          <div class="os-core">
+            <h3>Harness OS</h3>
+            <div class="os-grid">
+              <span>도구 실행</span>
+              <span>컨텍스트 · 메모리</span>
+              <span>권한 · 안전</span>
+              <span>격리 환경</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <aside class="notes">복잡한 추론 체인보다 에이전트가 안전하고 자유롭게 움직일 수 있는 인프라, Harness OS 설계가 앞으로의 핵심입니다.</aside>
+    </section>
+
+    <!-- 14. Q&A -->
+    <section class="slide slide--center hero">
+      <p class="eyebrow">Thank you</p>
+      <h1 class="qa">Q&amp;A</h1>
+      <p class="lead">감사합니다!</p>
+      <aside class="notes">감사합니다! Q&amp;A 시간입니다.</aside>
+    </section>
+
+    <!-- ===== SLIDES END ===== -->
+
+    <div class="counter" aria-live="polite" aria-atomic="true"></div>
+  </main>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const W = 1920, H = 1080;
+  const stage = document.querySelector('.stage');
+  const deck = document.querySelector('.deck');
+  const counter = deck.querySelector('.counter');
+  const slides = [...deck.querySelectorAll(':scope > .slide')];
+  const total = slides.length;
+  let cur = -1;
+
+  /* ---------- 화면 맞춤: 16:9 캔버스를 레터박스로 축소/확대 ---------- */
+  function fit() {
+    const s = Math.min(stage.clientWidth / W, stage.clientHeight / H);
+    deck.style.setProperty('--scale', s);
+  }
+  new ResizeObserver(fit).observe(stage);
+  fit();
+
+  /* ---------- 상태 변경은 goTo 한 곳에서만 ---------- */
+  function goTo(i) {
+    i = Math.max(0, Math.min(total - 1, i | 0));
+    if (i === cur) return;
+    cur = i;
+    slides.forEach((el, k) => {
+      const on = k === cur;
+      el.classList.toggle('is-active', on);
+      el.inert = !on;                                   // 숨은 슬라이드의 포커스·스크린리더 차단
+      if (on) el.removeAttribute('aria-hidden'); else el.setAttribute('aria-hidden', 'true');
+    });
+    counter.textContent = `${cur + 1} / ${total}`;
+    const hash = '#' + (cur + 1);
+    if (location.hash !== hash) history.replaceState(null, '', hash);  // 새로고침해도 같은 슬라이드
+  }
+  const next = () => goTo(cur + 1);
+  const prev = () => goTo(cur - 1);
+
+  /* ---------- 전체 화면 (Safari 접두사 대비) ---------- */
+  function toggleFullscreen() {
+    const d = document, root = d.documentElement;
+    const active = d.fullscreenElement || d.webkitFullscreenElement;
+    const fn = active
+      ? (d.exitFullscreen || d.webkitExitFullscreen)
+      : (root.requestFullscreen || root.webkitRequestFullscreen);
+    if (!fn) return;
+    const p = fn.call(active ? d : root);
+    if (p && p.catch) p.catch(() => {});
+  }
+
+  /* ---------- 키보드 ---------- */
+  const isEditable = t => t instanceof Element &&
+    (t.isContentEditable || t.closest('input, textarea, select, [contenteditable]'));
+
+  document.addEventListener('keydown', e => {
+    if (e.defaultPrevented || isEditable(e.target)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;  // 브라우저 단축키 보호
+    if (e.repeat) return;                                          // 길게 눌러 여러 장 넘어가는 것 방지
+
+    let act = null;
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': act = next; break;
+      case 'ArrowLeft':  case 'ArrowUp':   case 'PageUp':   act = prev; break;
+      case 'Home': act = () => goTo(0); break;
+      case 'End':  act = () => goTo(total - 1); break;
+      case 'f': case 'F': act = toggleFullscreen; break;
+    }
+    if (!act) return;
+    e.preventDefault();                                            // 처리한 키만 기본 동작 막기
+    act();
+  });
+
+  /* ---------- URL 해시 (#3 = 3번째 슬라이드) ---------- */
+  const fromHash = () => {
+    const m = /^#(\d+)$/.exec(location.hash);
+    return m ? +m[1] - 1 : 0;
+  };
+  addEventListener('hashchange', () => goTo(fromHash()));
+
+  /* ---------- Init ---------- */
+  slides.forEach((el, i) => {
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-roledescription', 'slide');
+    el.setAttribute('aria-label', `${i + 1} / ${total}`);
+  });
+  goTo(fromHash());
+
+  window.deck = { goTo, next, prev, get current() { return cur; }, total };
+})();
+</script>
+</body>
+</html>

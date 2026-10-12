@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+  /* =========================================================
+     Tokens — 색·글꼴은 여기서만 바꾼다
+     ========================================================= */
+  :root {
+    --bg: #0f1115;
+    --surface: #181b22;
+    --line: rgba(255, 255, 255, .12);
+    --ink: #eef1f6;
+    --muted: #a3abb9;
+    --accent: #6ea8fe;
+    --letterbox: #000;
+
+    --font: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', system-ui, sans-serif;
+    --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+    --dur: .4s;          /* 슬라이드 전환 시간 */
+  }
+  @media (prefers-reduced-motion: reduce) { :root { --dur: 0s; } }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--letterbox); color: var(--ink); font-family: var(--font); overflow: hidden; }
+
+  /* =========================================================
+     Layout — 1920×1080 고정 캔버스를 화면에 맞춰 scale
+     ========================================================= */
+  .stage { position: fixed; inset: 0; height: 100vh; height: 100dvh; overflow: hidden; }
+  .deck {
+    position: absolute; left: 50%; top: 50%;
+    width: 1920px; height: 1080px;
+    transform: translate(-50%, -50%) scale(var(--scale, 1));
+    overflow: hidden; background: var(--bg);
+  }
+
+  /* 모든 슬라이드는 같은 자리에 겹쳐 쌓고, 활성 슬라이드만 보인다 (display:none 금지) */
+  .slide {
+    position: absolute; inset: 0;
+    padding: 120px 160px;
+    display: flex; flex-direction: column; justify-content: center; gap: 36px;
+    font-size: 40px; line-height: 1.5;
+    opacity: 0; visibility: hidden;
+    transition: opacity var(--dur) ease, visibility 0s linear var(--dur);
+    contain: layout paint style;
+  }
+  .slide.is-active { opacity: 1; visibility: visible; transition-delay: 0s; }
+
+  /* =========================================================
+     Slide content
+     ========================================================= */
+  .slide h1 { margin: 0; font-size: 96px; line-height: 1.15; letter-spacing: -.02em; }
+  .slide h2 { margin: 0; font-size: 68px; line-height: 1.2; letter-spacing: -.015em; }
+  .slide h3 { margin: 0; font-size: 44px; line-height: 1.3; }
+  .slide p { margin: 0; }
+  .slide ul, .slide ol { margin: 0; padding-left: 1.2em; display: grid; gap: 20px; }
+  .slide li::marker { color: var(--accent); }
+  .slide code { font-family: var(--mono); font-size: .85em; padding: .05em .3em; border-radius: 8px; background: var(--surface); }
+  .slide pre { margin: 0; padding: 32px 40px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); font: 30px/1.6 var(--mono); overflow: hidden; }
+  .slide pre code { padding: 0; background: none; font-size: inherit; }
+  .slide img { max-width: 100%; max-height: 640px; object-fit: contain; border-radius: 16px; }
+
+  .eyebrow { font-size: 28px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  .lead { font-size: 44px; color: var(--muted); }
+  .muted { color: var(--muted); }
+
+  /* 레이아웃 변형 */
+  .slide--title { align-items: flex-start; }
+  .slide--title h1 { font-size: 120px; }
+  .slide--center { align-items: center; text-align: center; }
+  .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 64px; align-items: start; }
+  .cols--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px; }
+  .card { padding: 40px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); display: grid; gap: 16px; align-content: start; }
+  .card p { font-size: 32px; color: var(--muted); }
+
+  /* =========================================================
+     Slide number
+     ========================================================= */
+  .counter {
+    position: absolute; right: 48px; bottom: 36px; z-index: 10;
+    font: 700 26px/1 var(--mono); color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+
+  aside.notes { display: none; }   /* 발표자 메모 자리 (화면에는 표시하지 않음) */
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <main class="deck" aria-roledescription="carousel" aria-label="{{TITLE}}">
+
+    <!-- ===== SLIDES START ===== -->
+
+    <section class="slide slide--title">
+      <p class="eyebrow">{{EYEBROW}}</p>
+      <h1>{{TITLE}}</h1>
+      <p class="lead">{{SUBTITLE}}</p>
+    </section>
+
+    <section class="slide">
+      <h2>슬라이드 제목</h2>
+      <ul>
+        <li>첫 번째 요점</li>
+        <li>두 번째 요점</li>
+        <li>세 번째 요점</li>
+      </ul>
+    </section>
+
+    <section class="slide slide--center">
+      <h2>감사합니다</h2>
+    </section>
+
+    <!-- ===== SLIDES END ===== -->
+
+    <div class="counter" aria-live="polite" aria-atomic="true"></div>
+  </main>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const W = 1920, H = 1080;
+  const stage = document.querySelector('.stage');
+  const deck = document.querySelector('.deck');
+  const counter = deck.querySelector('.counter');
+  const slides = [...deck.querySelectorAll(':scope > .slide')];
+  const total = slides.length;
+  let cur = -1;
+
+  /* ---------- 화면 맞춤: 16:9 캔버스를 레터박스로 축소/확대 ---------- */
+  function fit() {
+    const s = Math.min(stage.clientWidth / W, stage.clientHeight / H);
+    deck.style.setProperty('--scale', s);
+  }
+  new ResizeObserver(fit).observe(stage);
+  fit();
+
+  /* ---------- 상태 변경은 goTo 한 곳에서만 ---------- */
+  function goTo(i) {
+    i = Math.max(0, Math.min(total - 1, i | 0));
+    if (i === cur) return;
+    cur = i;
+    slides.forEach((el, k) => {
+      const on = k === cur;
+      el.classList.toggle('is-active', on);
+      el.inert = !on;                                   // 숨은 슬라이드의 포커스·스크린리더 차단
+      if (on) el.removeAttribute('aria-hidden'); else el.setAttribute('aria-hidden', 'true');
+    });
+    counter.textContent = `${cur + 1} / ${total}`;
+    const hash = '#' + (cur + 1);
+    if (location.hash !== hash) history.replaceState(null, '', hash);  // 새로고침해도 같은 슬라이드
+  }
+  const next = () => goTo(cur + 1);
+  const prev = () => goTo(cur - 1);
+
+  /* ---------- 전체 화면 (Safari 접두사 대비) ---------- */
+  function toggleFullscreen() {
+    const d = document, root = d.documentElement;
+    const active = d.fullscreenElement || d.webkitFullscreenElement;
+    const fn = active
+      ? (d.exitFullscreen || d.webkitExitFullscreen)
+      : (root.requestFullscreen || root.webkitRequestFullscreen);
+    if (!fn) return;
+    const p = fn.call(active ? d : root);
+    if (p && p.catch) p.catch(() => {});
+  }
+
+  /* ---------- 키보드 ---------- */
+  const isEditable = t => t instanceof Element &&
+    (t.isContentEditable || t.closest('input, textarea, select, [contenteditable]'));
+
+  document.addEventListener('keydown', e => {
+    if (e.defaultPrevented || isEditable(e.target)) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;  // 브라우저 단축키 보호
+    if (e.repeat) return;                                          // 길게 눌러 여러 장 넘어가는 것 방지
+
+    let act = null;
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': act = next; break;
+      case 'ArrowLeft':  case 'ArrowUp':   case 'PageUp':   act = prev; break;
+      case 'Home': act = () => goTo(0); break;
+      case 'End':  act = () => goTo(total - 1); break;
+      case 'f': case 'F': act = toggleFullscreen; break;
+    }
+    if (!act) return;
+    e.preventDefault();                                            // 처리한 키만 기본 동작 막기
+    act();
+  });
+
+  /* ---------- URL 해시 (#3 = 3번째 슬라이드) ---------- */
+  const fromHash = () => {
+    const m = /^#(\d+)$/.exec(location.hash);
+    return m ? +m[1] - 1 : 0;
+  };
+  addEventListener('hashchange', () => goTo(fromHash()));
+
+  /* ---------- Init ---------- */
+  slides.forEach((el, i) => {
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-roledescription', 'slide');
+    el.setAttribute('aria-label', `${i + 1} / ${total}`);
+  });
+  goTo(fromHash());
+
+  window.deck = { goTo, next, prev, get current() { return cur; }, total };
+})();
+</script>
+</body>
+</html>

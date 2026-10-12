@@ -1,0 +1,18 @@
+{
+    "name": "vely-marketplace",
+    "owner":{
+        "name":"rovely",
+        "email":"nhk000718@naver.com"
+    },
+    "plugins":[
+        {
+            "name":"ppt-maker",
+            "source":"./plugins/ppt-maker-plugin",
+            "description":"PPT 생성 플러그인",
+            "version": "1.0.0",
+            "author":{
+                "name": "rovely"
+            }
+        }
+    ]
+}
